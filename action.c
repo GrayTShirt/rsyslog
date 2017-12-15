@@ -960,22 +960,35 @@ prepareDoActionParams(action_t * __restrict__ const pAction,
 	if(pAction->isTransactional) {
 		CHKiRet(wtiNewIParam(pWti, pAction, &iparams));
 		for(i = 0 ; i < pAction->iNumTpls ; ++i) {
-			CHKiRet(tplToString(pAction->ppTpl[i], pMsg, 
+			switch(pAction->peParamPassing[i]) {
+			case ACT_ARRAY_PASSING:
+				CHKiRet(tplToArray(pAction->ppTpl[i], pMsg,
+					(uchar ***)&actParam(iparams, pAction->iNumTpls, 0, i),
+					ttNow));
+				break;
+			case ACT_STRING_PASSING:
+				CHKiRet(tplToString(pAction->ppTpl[i], pMsg, 
 					    &actParam(iparams, pAction->iNumTpls, 0, i),
 				            ttNow));
+				break;
+			default: dbgprintf("software bug/error: unknown "
+				"pAction->peParamPassing[%d] %d in prepareDoActionParams\n",
+					  i, (int) pAction->peParamPassing[i]);
+				break;
+			}
 		}
 	} else {
 		for(i = 0 ; i < pAction->iNumTpls ; ++i) {
 			switch(pAction->peParamPassing[i]) {
+			case ACT_ARRAY_PASSING:
+				CHKiRet(tplToArray(pAction->ppTpl[i], pMsg,
+					(uchar***) &(pWrkrInfo->p.nontx.actParams[i].param), ttNow));
+				break;
 			case ACT_STRING_PASSING:
 				CHKiRet(tplToString(pAction->ppTpl[i], pMsg,
 					   &(pWrkrInfo->p.nontx.actParams[i]),
 					   ttNow));
 				break;
-			/* note: ARRAY_PASSING mode has been removed in 8.26.0; if it
-			 * is ever needed again, it can be found in 8.25.0.
-			 * rgerhards 2017-03-06
-			 */
 			case ACT_MSG_PASSING:
 				pWrkrInfo->p.nontx.actParams[i].param = (void*) pMsg;
 				break;
@@ -1004,8 +1017,10 @@ finalize_it:
 void
 releaseDoActionParams(action_t *__restrict__ const pAction, wti_t *__restrict__ const pWti, int action_destruct)
 {
+	int jArr;
 	int j;
 	actWrkrInfo_t *__restrict__ pWrkrInfo;
+	uchar ***ppMsgs;
 
 	pWrkrInfo = &(pWti->actWrkrInfo[pAction->iActionNbr]);
 	for(j = 0 ; j < pAction->iNumTpls ; ++j) {
@@ -1017,9 +1032,23 @@ releaseDoActionParams(action_t *__restrict__ const pAction, wti_t *__restrict__ 
 		} else {
 			switch(pAction->peParamPassing[j]) {
 			case ACT_ARRAY_PASSING:
-				LogError(0, RS_RET_ERR, "plugin error: no longer supported "
-					"ARRAY_PASSING mode is used (see action.c)");
-				return;
+				ppMsgs = (uchar***) pWrkrInfo->p.nontx.actParams[0].param;
+				/* if we every use array passing mode again, we need to check
+				 * this code. It hasn't been used since refactoring for v7.
+				 */
+				if(ppMsgs != NULL) {
+					if(((uchar**)ppMsgs)[j] != NULL) {
+						jArr = 0;
+						while(ppMsgs[j][jArr] != NULL) {
+							free(ppMsgs[j][jArr]);
+							ppMsgs[j][jArr] = NULL;
+							++jArr;
+						}
+						free(((uchar**)ppMsgs)[j]);
+						((uchar**)ppMsgs)[j] = NULL;
+					}
+				}
+				break;
 			case ACT_JSON_PASSING:
 				json_object_put((struct json_object*)
 								pWrkrInfo->p.nontx.actParams[j].param);
@@ -1951,7 +1980,8 @@ addAction(action_t **ppAction, modInfo_t *pMod, void *pModData,
 
 		/* set parameter-passing mode */
 		if(iTplOpts & OMSR_TPL_AS_ARRAY) {
-			ABORT_FINALIZE(RS_RET_ERR);
+			pAction->peParamPassing[i] = ACT_ARRAY_PASSING;
+			pAction->bNeedReleaseBatch = 1;
 		} else if(iTplOpts & OMSR_TPL_AS_MSG) {
 			pAction->peParamPassing[i] = ACT_MSG_PASSING;
 			pAction->bUsesMsgPassingMode = 1;
