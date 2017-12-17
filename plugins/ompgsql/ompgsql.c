@@ -64,11 +64,11 @@ typedef struct _instanceData {
 	char            dbname[_DB_MAXDBLEN+1];  /* DB name */
 	char            user[_DB_MAXUNAMELEN+1]; /* DB user */
 	char            pass[_DB_MAXPWDLEN+1];   /* DB user's password */
-	unsigned int    trans_age;
-	unsigned int    trans_commit;
-	unsigned short  multi_row;
+	unsigned int    rows;
+	unsigned int    statements;
 	int             port;
-	uchar          *tpl;                      /* format template to use */
+	uchar          *tpl;                     /* format template to use */
+	uchar          *prepared;                /* the prepared statement to use */
 } instanceData;
 
 typedef struct wrkrInstanceData {
@@ -84,18 +84,20 @@ static configSettings_t __attribute__((unused)) cs;
 
 /* action (instance) parameters */
 static struct cnfparamdescr actpdescr[] = {
-	{ "server",     eCmdHdlrGetWord, 1 },
-	{ "db",         eCmdHdlrGetWord, 1 },
-	{ "user",       eCmdHdlrGetWord, 0 },
-	{ "uid",        eCmdHdlrGetWord, 0 },
-	{ "pass",       eCmdHdlrGetWord, 0 },
-	{ "pwd",        eCmdHdlrGetWord, 0 },
-	{ "multirows",  eCmdHdlrInt,     0 },
-	{ "trans_size", eCmdHdlrInt,     0 },
-	{ "trans_age",  eCmdHdlrInt,     0 },
-	{ "serverport", eCmdHdlrInt,     0 },
-	{ "port",       eCmdHdlrInt,     0 },
-	{ "template",   eCmdHdlrGetWord, 0 }
+	{ "server",        eCmdHdlrGetWord, 1 },
+	{ "db",            eCmdHdlrGetWord, 1 },
+	{ "user",          eCmdHdlrGetWord, 0 },
+	{ "uid",           eCmdHdlrGetWord, 0 },
+	{ "pass",          eCmdHdlrGetWord, 0 },
+	{ "pwd",           eCmdHdlrGetWord, 0 },
+	{ "maxrows",       eCmdHdlrInt,     0 },
+	{ "rows",          eCmdHdlrInt,     0 },
+	{ "maxstatements", eCmdHdlrInt,     0 },
+	{ "statements",    eCmdHdlrInt,     0 },
+	{ "serverport",    eCmdHdlrInt,     0 },
+	{ "port",          eCmdHdlrInt,     0 },
+	{ "template",      eCmdHdlrGetWord, 0 },
+	{ "prepared",      eCmdHdlrGetWord, 0 }
 };
 
 
@@ -146,6 +148,7 @@ static void closePgSQL(wrkrInstanceData_t *pWrkrData)
 
 BEGINfreeInstance
 CODESTARTfreeInstance
+	free(pData->prepared);
 	free(pData->tpl);
 ENDfreeInstance
 
@@ -270,17 +273,6 @@ writePgSQL(uchar *psz, wrkrInstanceData_t *pWrkrData)
 	bHadError = tryExec(psz, pWrkrData); /* try insert */
 
 	if (bHadError || (PQstatus(pWrkrData->f_hpgsql) != CONNECTION_OK)) {
-#if 0		/* re-enable once we have transaction support */
-		/* error occured, try to re-init connection and retry */
-		int inTransaction = 0;
-		if(pData->f_hpgsql != NULL) {
-			PGTransactionStatusType xactStatus = PQtransactionStatus(pData->f_hpgsql);
-			if((xactStatus == PQTRANS_INTRANS) || (xactStatus == PQTRANS_ACTIVE)) {
-				inTransaction = 1;
-			}
-		}
-		if ( inTransaction == 0 )
-#endif
 		{
 			closePgSQL(pWrkrData); /* close the current handle */
 			CHKiRet(initPgSQL(pWrkrData, 0)); /* try to re-open */
@@ -324,34 +316,53 @@ BEGINbeginTransaction
 CODESTARTbeginTransaction
 ENDbeginTransaction
 
-
 BEGINcommitTransaction
+	unsigned int i, j;
+	char **params = calloc(sizeof(char *), sizeof(char *));
 CODESTARTcommitTransaction
-	dbgprintf("ompgsql: beginTransaction\n");
+	dbgprintf("begin transaction\n");
+
+	CHKiRet(writePgSQL((uchar*) "BEGIN", pWrkrData)); /* TODO: make user-configurable */
 	if (pWrkrData->f_hpgsql == NULL)
 		initPgSQL(pWrkrData, 0);
-	CHKiRet(writePgSQL((uchar*) "BEGIN", pWrkrData)); /* TODO: make user-configurable */
 
-	for (unsigned i = 0 ; i < nParams ; ++i) {
-		iRet = writePgSQL(actParam(pParams, 1, i, 0).param, pWrkrData);
-		if (iRet != RS_RET_OK
-			&& iRet != RS_RET_DEFER_COMMIT
-			&& iRet != RS_RET_PREVIOUS_COMMITTED) {
-			/*if(mysql_rollback(pWrkrData->hmysql) != 0) {
-				DBGPRINTF("ommysql: server error: transaction could not be rolled back\n");
-			}*/
-			// closeMySQL(pWrkrData);
-			// FINALIZE;
+	for (i = 0 ; i < nParams ; ++i) {
+		j = 0;
+		params = (char **)actParam(pParams, 1, i, 0).param;
+		while (params[j] != NULL) {
+			//dbgprintf("param %d = %s, ", j, params[j]);
+			iRet = writePgSQL(actParam(pParams, 1, i, 0).param, pWrkrData);
+			if (iRet != RS_RET_OK
+				&& iRet != RS_RET_DEFER_COMMIT
+				&& iRet != RS_RET_PREVIOUS_COMMITTED) {
+				if (writePgSQL((uchar*) "ROLLBACK", pWrkrData) != 0) {
+					DBGPRINTF("server error: transaction could not be rolled back\n");
+				}
+				closePgSQL(pWrkrData);
+				FINALIZE;
+			}
+			j++;
 		}
+		//dbgprintf("\n");
 	}
-
+	/*
+	for (i = 0; i < params[i]; i++) {
+		dbgprintf("batch[%d][%d]=%s\n", i, pData->batch.n, params[i]);
+		sz = strlcpy(pData->batch.parameters[i][pData->batch.n],
+			     params[i], pData->batch.param_size);
+		if (sz >= pData->batch.param_size)
+			errmsg.LogError(0, NO_ERRCODE,
+					"Possibly truncated %d column of '%s' "
+					"statement: %s", i,
+					pData->txt_statement, params[i]);
+	}
+	*/
 	CHKiRet(writePgSQL((uchar*) "COMMIT", pWrkrData)); /* TODO: make user-configurable */
 
 finalize_it:
 	if (iRet == RS_RET_OK) {
 		pWrkrData->eLastPgSQLStatus = CONNECTION_OK; /* reset error for error supression */
 	}
-
 ENDcommitTransaction
 
 
@@ -359,9 +370,8 @@ static inline void
 setInstParamDefaults(instanceData *pData)
 {
 	pData->tpl           = NULL;
-	pData->multi_row     = 100;
-	pData->trans_commit  = 100;
-	pData->trans_age     = 60;
+	pData->rows          = 100;
+	pData->statements    = 100;
 	pData->port          = 5432;
 	strncpy(pData->user, "postgres", sizeof(pData->user));
 	strncpy(pData->pass, "postgres", sizeof(pData->pass));
@@ -391,12 +401,14 @@ CODESTARTnewActInst
 			pData->port = (int) pvals[i].val.d.n;
 		} else if (!strcmp(actpblk.descr[i].name, "serverport")) {
 			pData->port = (int) pvals[i].val.d.n;
-		} else if (!strcmp(actpblk.descr[i].name, "multirows")) {
-			pData->multi_row = (int) pvals[i].val.d.n;
-		} else if (!strcmp(actpblk.descr[i].name, "trans_size")) {
-			pData->trans_commit = (int) pvals[i].val.d.n;
-		} else if (!strcmp(actpblk.descr[i].name, "trans_age")) {
-			pData->trans_age = (int) pvals[i].val.d.n;
+		} else if (!strcmp(actpblk.descr[i].name, "maxows")) {
+			pData->rows = (int) pvals[i].val.d.n;
+		} else if (!strcmp(actpblk.descr[i].name, "rows")) {
+			pData->rows = (int) pvals[i].val.d.n;
+		} else if (!strcmp(actpblk.descr[i].name, "maxstatments")) {
+			pData->statements = (int) pvals[i].val.d.n;
+		} else if (!strcmp(actpblk.descr[i].name, "statments")) {
+			pData->statements = (int) pvals[i].val.d.n;
 		} else if (!strcmp(actpblk.descr[i].name, "db")) {
 			cstr = es_str2cstr(pvals[i].val.d.estr, NULL);
 			strncpy(pData->dbname, cstr, sizeof(pData->dbname));
@@ -419,16 +431,21 @@ CODESTARTnewActInst
 			free(cstr);
 		} else if (!strcmp(actpblk.descr[i].name, "template")) {
 			pData->tpl = (uchar*)es_str2cstr(pvals[i].val.d.estr, NULL);
+		} else if (!strcmp(actpblk.descr[i].name, "prepared")) {
+			pData->prepared = (uchar*)es_str2cstr(pvals[i].val.d.estr, NULL);
 		} else {
 			dbgprintf("ompgsql: program error, non-handled "
 				"param '%s'\n", actpblk.descr[i].name);
 		}
 	}
 
+
 	if (pData->tpl == NULL) {
-		CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup(" StdPgSQLFmt"),     OMSR_RQD_TPL_OPT_SQL));
+		// CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup(" StdPgSQLFmt"),     OMSR_RQD_TPL_OPT_SQL));
+		CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup(" StdPgSQLFmt"), OMSR_TPL_AS_ARRAY));
 	} else {
-		CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup((char*) pData->tpl), OMSR_RQD_TPL_OPT_SQL));
+		// CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup((char*) pData->tpl), OMSR_RQD_TPL_OPT_SQL));
+		CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup((char*) pData->tpl), OMSR_TPL_AS_ARRAY));
 	}
 
 CODE_STD_FINALIZERnewActInst
@@ -511,7 +528,6 @@ CODESTARTqueryEtryPt
 CODEqueryEtryPt_STD_OMODTX_QUERIES
 CODEqueryEtryPt_STD_OMOD8_QUERIES
 CODEqueryEtryPt_STD_CONF2_OMOD_QUERIES
-/* CODEqueryEtryPt_TXIF_OMOD_QUERIES currently no TX support! */ /* we support the transactional interface! */
 ENDqueryEtryPt
 
 /* Reset config variables for this module to default values.  */

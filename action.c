@@ -430,7 +430,7 @@ actionConstructFinalize(action_t *__restrict__ const pThis, struct nvlst *lst)
 	if(pThis->isTransactional) {
 		int i;
 		for(i = 0 ; i < pThis->iNumTpls ; ++i) {
-			if(pThis->peParamPassing[i] != ACT_STRING_PASSING) {
+			if(pThis->peParamPassing[i] != ACT_STRING_PASSING && pThis->peParamPassing[i] != ACT_ARRAY_PASSING) {
 				LogError(0, RS_RET_INVLD_OMOD, "action '%s'(%d) is transactional but "
 						"parameter %d "
 						"uses invalid parameter passing mode -- disabling "
@@ -967,7 +967,7 @@ prepareDoActionParams(action_t * __restrict__ const pAction,
 					ttNow));
 				break;
 			case ACT_STRING_PASSING:
-				CHKiRet(tplToString(pAction->ppTpl[i], pMsg, 
+				CHKiRet(tplToString(pAction->ppTpl[i], pMsg,
 					    &actParam(iparams, pAction->iNumTpls, 0, i),
 				            ttNow));
 				break;
