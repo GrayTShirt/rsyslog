@@ -306,6 +306,13 @@ tplToArray(struct template *pTpl, smsg_t *pMsg, uchar*** ppArr, struct syslogTim
 		} else 	if(pTpe->eEntryType == FIELD) {
 			pVal = (uchar*) MsgGetProp(pMsg, pTpe, &pTpe->data.field.msgProp,
 						   &propLen, &bMustBeFreed, ttNow);
+			if(pTpl->optFormatEscape == SQL_ESCAPE)
+				doEscape(&pVal, &propLen, &bMustBeFreed, SQL_ESCAPE);
+			else if(pTpl->optFormatEscape == JSON_ESCAPE)
+				doEscape(&pVal, &propLen, &bMustBeFreed, JSON_ESCAPE);
+			else if(pTpl->optFormatEscape == STDSQL_ESCAPE)
+				doEscape(&pVal, &propLen, &bMustBeFreed, STDSQL_ESCAPE);
+
 			if(bMustBeFreed) { /* if it must be freed, it is our own private copy... */
 				pArr[iArr] = pVal; /* ... so we can use it! */
 			} else {

@@ -102,10 +102,14 @@ static uchar template_StdDBFmt[] = "\"insert into SystemEvents (Message, Facilit
 "DeviceReportedTime, ReceivedAt, InfoUnitID, SysLogTag) values ('%msg%', %syslogfacility%, "
 "'%HOSTNAME%', %syslogpriority%, '%timereported:::date-mysql%', '%timegenerated:::date-mysql%', %iut%, "
 "'%syslogtag%')\",SQL";
-static uchar template_StdPgSQLFmt[] = "\"insert into SystemEvents (Message, Facility, FromHost, Priority, "
-"DeviceReportedTime, ReceivedAt, InfoUnitID, SysLogTag) values ('%msg%', %syslogfacility%, "
+static uchar template_StdPgSQLFmt[] = "\"INSERT INTO systemevents (Message, Facility, FromHost, Priority, "
+"DeviceReportedTime, ReceivedAt, InfoUnitID, SysLogTag) VALUES ('%msg%', %syslogfacility%, "
 "'%HOSTNAME%', %syslogpriority%, '%timereported:::date-pgsql%', '%timegenerated:::date-pgsql%', %iut%, "
 "'%syslogtag%')\",STDSQL";
+static uchar template_ArrayPgSQLFmt[] = "\"INSERT INTO systemevents (message, facility, fromhost, priority, "
+"devicereportedtime, receivedat, infounitid, syslogtag) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
+ "%msg%%syslogfacility%%HOSTNAME%%syslogpriority%%timereported:::date-pgsql%%timegenerated:::date-pgsql%"
+ "%iut%%syslogtag%\"";
 static uchar template_spoofadr[] = "\"%fromhost-ip%\"";
 static uchar template_SysklogdFileFormat[] = "\"%TIMESTAMP% %HOSTNAME% %syslogtag%%msg:::sp-if-no-1st-sp%%msg%\n\"";
 static uchar template_StdJSONFmt[] = "\"{\\\"message\\\":\\\"%msg:::json%\\\",\\\"fromhost\\\":\\\""
@@ -1254,6 +1258,8 @@ initLegacyConf(void)
 	tplAddLine(ourConf, "RSYSLOG_SysklogdFileFormat", &pTmp);
 	pTmp = template_StdPgSQLFmt;
 	tplAddLine(ourConf, " StdPgSQLFmt", &pTmp);
+	pTmp = template_ArrayPgSQLFmt;
+	tplAddLine(ourConf, " ArrayPgSQLFmt", &pTmp);
 	pTmp = template_StdJSONFmt;
 	tplAddLine(ourConf, " StdJSONFmt", &pTmp);
 	pTmp = template_spoofadr;

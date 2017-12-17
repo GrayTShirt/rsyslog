@@ -201,6 +201,22 @@ case $1 in
 		LD_PRELOAD=$RSYSLOG_PRELOAD $valgrind ../tools/rsyslogd -C -n -irsyslog$3.pid -M../runtime/.libs:../.libs -f$CONF_FILE &
 		. $srcdir/diag.sh wait-startup $3
 		;;
+	'startup-dbg')   # start rsyslogd with default params. $2 is the config file name to use
+		# returns only after successful startup, $3 is the instance (blank or 2!)
+		if [ "x$2" == "x" ]; then
+		    CONF_FILE="testconf.conf"
+		    echo $CONF_FILE is:
+		    cat -n $CONF_FILE
+		else
+		    CONF_FILE="$srcdir/testsuites/$2"
+		fi
+		if [ ! -f $CONF_FILE ]; then
+		    echo "ERROR: config file '$CONF_FILE' not found!"
+		    exit 1
+		fi
+		LD_PRELOAD=$RSYSLOG_PRELOAD $valgrind ../tools/rsyslogd -C -dn -irsyslog$3.pid -M../runtime/.libs:../.libs -f$CONF_FILE &
+		. $srcdir/diag.sh wait-startup $3
+		;;
    'startup-silent')   # start rsyslogd with default params. $2 is the config file name to use
    		# returns only after successful startup, $3 is the instance (blank or 2!)
 		if [ ! -f $srcdir/testsuites/$2 ]; then

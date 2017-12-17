@@ -71,10 +71,17 @@ typedef struct _instanceData {
 	uchar          *prepared;                /* the prepared statement to use */
 } instanceData;
 
+typedef struct prepared {
+	unsigned int    size;
+	unsigned int    cursor;
+	char          **params;
+} prepared_t;
+
 typedef struct wrkrInstanceData {
 	instanceData   *pData;
 	PGconn         *f_hpgsql;                /* handle to PgSQL */
 	ConnStatusType  eLastPgSQLStatus;        /* last status from postgres */
+	prepared_t     *batch;                   /* pointer to batched jobs */
 } wrkrInstanceData_t;
 
 typedef struct configSettings_s {
@@ -122,7 +129,11 @@ ENDcreateInstance
 
 BEGINcreateWrkrInstance
 CODESTARTcreateWrkrInstance
-	pWrkrData->f_hpgsql = NULL;
+	pWrkrData->f_hpgsql      = NULL;
+//	CHKmalloc(pWrkrData->batch         = malloc(sizeof(prepared_t)));
+//	CHKmalloc(pWrkrData->batch->params = calloc(sizeof(unsigned char *), sizeof(unsigned char *)));
+//finalize_it:
+//	RETiRet;
 ENDcreateWrkrInstance
 
 
@@ -273,12 +284,10 @@ writePgSQL(uchar *psz, wrkrInstanceData_t *pWrkrData)
 	bHadError = tryExec(psz, pWrkrData); /* try insert */
 
 	if (bHadError || (PQstatus(pWrkrData->f_hpgsql) != CONNECTION_OK)) {
-		{
-			closePgSQL(pWrkrData); /* close the current handle */
-			CHKiRet(initPgSQL(pWrkrData, 0)); /* try to re-open */
-			bHadError = tryExec(psz, pWrkrData); /* retry */
-		}
-		if(bHadError || (PQstatus(pWrkrData->f_hpgsql) != CONNECTION_OK)) {
+		closePgSQL(pWrkrData);               /* close the current handle */
+		CHKiRet(initPgSQL(pWrkrData, 0));    /* try to re-open */
+		bHadError = tryExec(psz, pWrkrData); /* retry */
+		if (bHadError || (PQstatus(pWrkrData->f_hpgsql) != CONNECTION_OK)) {
 			/* we failed, giving up for now */
 			reportDBError(pWrkrData, 0);
 			closePgSQL(pWrkrData); /* free ressources */
@@ -318,21 +327,22 @@ ENDbeginTransaction
 
 BEGINcommitTransaction
 	unsigned int i, j;
-	char **params = calloc(sizeof(char *), sizeof(char *));
+	// char **params = calloc(sizeof(char *), sizeof(char *));
 CODESTARTcommitTransaction
 	dbgprintf("begin transaction\n");
 
-	CHKiRet(writePgSQL((uchar*) "BEGIN", pWrkrData)); /* TODO: make user-configurable */
-	if (pWrkrData->f_hpgsql == NULL)
-		initPgSQL(pWrkrData, 0);
+	//CHKiRet(writePgSQL((uchar*) "BEGIN", pWrkrData)); /* TODO: make user-configurable */
+	//if (pWrkrData->f_hpgsql == NULL)
+	//	initPgSQL(pWrkrData, 0);
 
 	for (i = 0 ; i < nParams ; ++i) {
 		j = 0;
-		params = (char **)actParam(pParams, 1, i, 0).param;
+		// params = (char **)actParam(pParams, 1, i, 0).param;
+		char **params = (char **) actParam(pParams, 1, i, 0).param;
 		while (params[j] != NULL) {
-			//dbgprintf("param %d = %s, ", j, params[j]);
-			iRet = writePgSQL(actParam(pParams, 1, i, 0).param, pWrkrData);
-			if (iRet != RS_RET_OK
+			dbgprintf(" param[%d]= %s", j, params[j]);
+			// iRet = writePgSQL(actParam(pParams, 1, i, 0).param, pWrkrData);
+			/*if (iRet != RS_RET_OK
 				&& iRet != RS_RET_DEFER_COMMIT
 				&& iRet != RS_RET_PREVIOUS_COMMITTED) {
 				if (writePgSQL((uchar*) "ROLLBACK", pWrkrData) != 0) {
@@ -340,10 +350,10 @@ CODESTARTcommitTransaction
 				}
 				closePgSQL(pWrkrData);
 				FINALIZE;
-			}
+			}*/
 			j++;
 		}
-		//dbgprintf("\n");
+		dbgprintf("\n");
 	}
 	/*
 	for (i = 0; i < params[i]; i++) {
@@ -357,9 +367,9 @@ CODESTARTcommitTransaction
 					pData->txt_statement, params[i]);
 	}
 	*/
-	CHKiRet(writePgSQL((uchar*) "COMMIT", pWrkrData)); /* TODO: make user-configurable */
+	//CHKiRet(writePgSQL((uchar*) "COMMIT", pWrkrData)); /* TODO: make user-configurable */
 
-finalize_it:
+//finalize_it:
 	if (iRet == RS_RET_OK) {
 		pWrkrData->eLastPgSQLStatus = CONNECTION_OK; /* reset error for error supression */
 	}
@@ -442,7 +452,7 @@ CODESTARTnewActInst
 
 	if (pData->tpl == NULL) {
 		// CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup(" StdPgSQLFmt"),     OMSR_RQD_TPL_OPT_SQL));
-		CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup(" StdPgSQLFmt"), OMSR_TPL_AS_ARRAY));
+		CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup(" ArrayPgSQLFmt"), OMSR_TPL_AS_ARRAY));
 	} else {
 		// CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup((char*) pData->tpl), OMSR_RQD_TPL_OPT_SQL));
 		CHKiRet(OMSRsetEntry(*ppOMSR, 0, (uchar*) strdup((char*) pData->tpl), OMSR_TPL_AS_ARRAY));
