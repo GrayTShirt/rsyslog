@@ -107,9 +107,8 @@ static uchar template_StdPgSQLFmt[] = "\"INSERT INTO systemevents (Message, Faci
 "'%HOSTNAME%', %syslogpriority%, '%timereported:::date-pgsql%', '%timegenerated:::date-pgsql%', %iut%, "
 "'%syslogtag%')\",STDSQL";
 static uchar template_ArrayPgSQLFmt[] = "\"INSERT INTO systemevents (message, facility, fromhost, priority, "
-"devicereportedtime, receivedat, infounitid, syslogtag) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
- "%msg%%syslogfacility%%HOSTNAME%%syslogpriority%%timereported:::date-pgsql%%timegenerated:::date-pgsql%"
- "%iut%%syslogtag%\"";
+"devicereportedtime, receivedat, infounitid, syslogtag) VALUES %msg%%syslogfacility%%HOSTNAME%"
+"%syslogpriority%%timereported:::date-pgsql%%timegenerated:::date-pgsql%%iut%%syslogtag%\"";
 static uchar template_spoofadr[] = "\"%fromhost-ip%\"";
 static uchar template_SysklogdFileFormat[] = "\"%TIMESTAMP% %HOSTNAME% %syslogtag%%msg:::sp-if-no-1st-sp%%msg%\n\"";
 static uchar template_StdJSONFmt[] = "\"{\\\"message\\\":\\\"%msg:::json%\\\",\\\"fromhost\\\":\\\""

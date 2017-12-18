@@ -22,7 +22,8 @@ psql -h localhost -U postgres -d syslogtest -f testsuites/pgsql-select-msg.sql -
 
 . $srcdir/diag.sh seq-check  0 4
 
+psql -h localhost -U postgres -d syslogtest -c 'SELECT * FROM systemevents;'
 echo cleaning up test database
-psql -h localhost -U postgres -c 'DROP DATABASE IF EXISTS syslogtest;'
+# psql -h localhost -U postgres -c 'DROP DATABASE IF EXISTS syslogtest;'
 
 . $srcdir/diag.sh exit
