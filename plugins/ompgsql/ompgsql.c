@@ -328,7 +328,7 @@ BEGINcommitTransaction
 CODESTARTcommitTransaction
 	dbgprintf("begin transaction\n");
 
-	// CHKiRet(writePgSQL((uchar*) "BEGIN", pWrkrData)); /* TODO: make user-configurable */
+	CHKiRet(writePgSQL((uchar*) "BEGIN", pWrkrData)); /* TODO: make user-configurable */
 	if (pWrkrData->f_hpgsql == NULL)
 		initPgSQL(pWrkrData, 0);
 
@@ -352,7 +352,7 @@ CODESTARTcommitTransaction
 		}
 		strcat(insert, " (");
 		params++;
-		pWrkrData->batch->values[i] = params;
+		pWrkrData->batch->values[i * pWrkrData->batch->params] = params;
 
 		int cursor = 0;
 		for (cursor = i * pWrkrData->batch->params + 1; cursor < (int) (pWrkrData->batch->params * ( i + 1 )); cursor++) {
@@ -380,12 +380,6 @@ CODESTARTcommitTransaction
 	//PGresult *pgRet;
 	//ExecStatusType execState;
 	dbgprintf("about to exec test\n");
-	char **test = malloc(1024 ^ 3);
-	 test = *(pWrkrData->batch->values);
-	//for (int h = 0; h < (int) (nParams * pWrkrData->batch->params); h++)
-	for (int h = 0; h < (int) (nParams * 8); h++)
-		dbgprintf("%s ", test[h]);
-	dbgprintf("about to exec\n");
 	/*pgRet = PQexecParams(pWrkrData->f_hpgsql, insert, nParams * pWrkrData->batch->params, NULL, (const char **) *(pWrkrData->batch->values), NULL, NULL, 0);
 	execState = PQresultStatus(pgRet);
 	if (execState != PGRES_COMMAND_OK && execState != PGRES_TUPLES_OK) {
@@ -393,7 +387,7 @@ CODESTARTcommitTransaction
 	}
 	PQclear(pgRet);
 	*/
-	free(insert);
+	//free(insert);
 	/*
 	for (i = 0; i < params[i]; i++) {
 		dbgprintf("batch[%d][%d]=%s\n", i, pData->batch.n, params[i]);
@@ -407,12 +401,12 @@ CODESTARTcommitTransaction
 	}
 	*/
 
-	//CHKiRet(writePgSQL((uchar*) "COMMIT", pWrkrData)); /* TODO: make user-configurable */
+	CHKiRet(writePgSQL((uchar*) "COMMIT", pWrkrData)); /* TODO: make user-configurable */
 
-//finalize_it:
-//	if (iRet == RS_RET_OK) {
-//		pWrkrData->eLastPgSQLStatus = CONNECTION_OK; /* reset error for error supression */
-//	}
+finalize_it:
+	if (iRet == RS_RET_OK) {
+		pWrkrData->eLastPgSQLStatus = CONNECTION_OK; /* reset error for error supression */
+	}
 ENDcommitTransaction
 
 
